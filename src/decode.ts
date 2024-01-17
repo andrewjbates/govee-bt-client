@@ -1,126 +1,110 @@
 import { isHt5074, isHt5075, isHt5101, isHt5179 } from "./validation";
+import {
+    DecodeCommand,
+    DecodeCommandResult,
+    SensorModel,
+    parseBatTwoChar,
+    parseEnvBitwiseAnd,
+    parseEnvLsbTc,
+    parseEnvLsbTcExtended,
+} from "./parsing";
 
-export const decodeH5074Values = (streamUpdate: string) => {
-    // inspired by https://github.com/Home-Is-Where-You-Hang-Your-Hack/sensor.goveetemp_bt_hci/blob/master/custom_components/govee_ble_hci/govee_advertisement.py#L116
-    const temp_lsb = streamUpdate
-        .substring(8, 10)
-        .concat(streamUpdate.substring(6, 8));
-    const hum_lsb = streamUpdate
-        .substring(12, 14)
-        .concat(streamUpdate.substring(10, 12));
+const models: SensorModel[] = [
+    {
+        modelName: "H5074",
+        functions: {
+            validator: isHt5074,
+            environment: parseEnvLsbTc,
+            battery: parseBatTwoChar,
+        },
+        offsets: {
+            envStart: 6,
+            envEnd: 14,
+            batStart: 14,
+            batEnd: 16,
+        },
+    },
+    {
+        modelName: "H5075",
+        functions: {
+            validator: isHt5075,
+            environment: parseEnvBitwiseAnd,
+            battery: parseBatTwoChar,
+        },
+        offsets: {
+            envStart: 6,
+            envEnd: 12,
+            batStart: 12,
+            batEnd: 14,
+        },
+    },
+    {
+        modelName: "H5101",
+        functions: {
+            validator: isHt5101,
+            environment: parseEnvBitwiseAnd,
+            battery: parseBatTwoChar,
+        },
+        offsets: {
+            envStart: 8,
+            envEnd: 14,
+            batStart: 14,
+            batEnd: 16,
+        },
+    },
+    {
+        modelName: "H5179",
+        functions: {
+            validator: isHt5179,
+            environment: parseEnvLsbTcExtended,
+            battery: parseBatTwoChar,
+        },
+        offsets: {
+            envStart: 14,
+            envEnd: 20,
+            batStart: 20,
+            batEnd: 22,
+        },
+    },
+];
 
-    const tempInC = twos_complement(parseInt(temp_lsb, 16)) / 100;
-    const tempInF = (tempInC * 9) / 5 + 32;
-    const humidity = parseInt(hum_lsb, 16) / 100;
+export const decodeAny: DecodeCommand = (streamUpdate) => {
+    for (let i = 0; i < models.length; i++) {
+        const { modelName, functions, offsets } = models[i];
+        if (functions.validator(streamUpdate)) {
+            return {
+                ...functions.environment(streamUpdate, offsets),
+                ...functions.battery(streamUpdate, offsets),
+            } as DecodeCommandResult;
+        }
+    }
 
-    const battery = parseInt(streamUpdate.substring(14, 16), 16);
+    throw new Error(
+        `Unsupported stream update (len: ${streamUpdate.length}): ${streamUpdate}`
+    );
+};
 
+export const decodeH5074Values: DecodeCommand = (streamUpdate) => {
+    return decodeValuesForModel("H5074", streamUpdate);
+};
+
+export const decodeH5075Values: DecodeCommand = (streamUpdate) => {
+    return decodeValuesForModel("H5075", streamUpdate);
+};
+
+export const decodeH5101Values: DecodeCommand = (streamUpdate) => {
+    return decodeValuesForModel("H5101", streamUpdate);
+};
+
+export const decodeH5179Values: DecodeCommand = (streamUpdate) => {
+    return decodeValuesForModel("H5179", streamUpdate);
+};
+
+const decodeValuesForModel = (model: string, streamUpdate: string) => {
+    const modelObj = models.filter((m) => m.modelName == model)[0];
+    const { functions, offsets } = modelObj;
     return {
-        battery,
-        humidity,
-        tempInC,
-        tempInF,
-    };
+        ...functions.environment(streamUpdate, offsets),
+        ...functions.battery(streamUpdate, offsets),
+    } as DecodeCommandResult;
 };
-
-export const decodeH5075Values = (streamUpdate: string) => {
-    // TODO would be great to find a way to validate
-
-    let encodedData = parseInt(streamUpdate.substring(6, 12), 16);
-
-    let tempIsNegative = false;
-    if (encodedData & 0x800000) {
-        tempIsNegative = true;
-        encodedData = encodedData ^ 0x800000;
-    }
-
-    const battery = parseInt(streamUpdate.substring(12, 14), 16);
-    let tempInC = encodedData / 10000;
-    if (tempIsNegative) {
-        tempInC = 0 - tempInC;
-    }
-    const tempInF = (tempInC * 9) / 5 + 32;
-    const humidity = (encodedData % 1000) / 10;
-
-    return {
-        battery,
-        humidity,
-        tempInC,
-        tempInF,
-    };
-};
-
-export const decodeH5101Values = (streamUpdate: string) => {
-    // TODO would be great to find a way to validate
-    let encodedData = parseInt(streamUpdate.substring(8, 14), 16);
-
-    let tempIsNegative = false;
-    if (encodedData & 0x800000) {
-        tempIsNegative = true;
-        encodedData = encodedData ^ 0x800000;
-    }
-
-    const battery = parseInt(streamUpdate.substring(14, 16), 16);
-    let tempInC = encodedData / 10000;
-    if (tempIsNegative) {
-        tempInC = 0 - tempInC;
-    }
-    const tempInF = (tempInC * 9) / 5 + 32;
-    const humidity = (encodedData % 1000) / 10;
-
-    return {
-        battery,
-        humidity,
-        tempInC,
-        tempInF,
-    };
-};
-
-export const decodeH5179Values = (streamUpdate: string) => {
-    // TODO would be great to find a way to validate
-
-    const temp_lsb = streamUpdate
-        .substring(14, 16)
-        .concat(streamUpdate.substring(16, 18));
-    const hum_lsb = streamUpdate
-        .substring(18, 20)
-        .concat(streamUpdate.substring(16, 18));
-
-    const tempInC = twos_complement(parseInt(temp_lsb, 16)) / 100;
-    const tempInF = (tempInC * 9) / 5 + 32;
-    const humidity = parseInt(hum_lsb, 16) / 100;
-
-    const battery = parseInt(streamUpdate.substring(20, 22), 16);
-
-    return {
-        battery,
-        humidity,
-        tempInC,
-        tempInF,
-    };
-};
-
-export const decodeAny = (streamUpdate: string) => {
-    if (isHt5074(streamUpdate)) {
-        return decodeH5074Values(streamUpdate);
-    }
-    if (isHt5075(streamUpdate)) {
-        return decodeH5075Values(streamUpdate);
-    }
-    if (isHt5101(streamUpdate)) {
-        return decodeH5101Values(streamUpdate);
-    }
-    if (isHt5179(streamUpdate)) {
-        return decodeH5179Values(streamUpdate);
-    }
-
-    throw new Error("Unsupported stream update: " + streamUpdate);
-};
-
-function twos_complement(n: number, w: number = 16): number {
-    // Adapted from: https://stackoverflow.com/a/33716541.
-    if (n & (1 << (w - 1))) {
-        n = n - (1 << w);
-    }
-    return n;
-}
